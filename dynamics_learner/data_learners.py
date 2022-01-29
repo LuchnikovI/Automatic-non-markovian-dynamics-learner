@@ -11,6 +11,7 @@ def dmd_fit(
     noisy_training_set: jnp.ndarray,
     dynamic_params: Any,
     static_params: Any,
+    jit_compatible: bool = False,
 ) -> Tuple[DMDDynamicsGenerator, jnp.ndarray]:
     """[This function fits data set using DMD based model with automatic rank selection.]
 
@@ -19,6 +20,8 @@ def dmd_fit(
             (batch_size, number_of_discrete_time_steps, n, n)): [set of quantum trajectories]
         dynamic_params (Any): [parameters that are not compile time constants]
         static_params (Any): [parameters that are compie time constants]
+        jit_compatible (bool): [the True flag makes this function jit compatible (jit обрезка)]
+            defautl to Flase
 
     Returns:
         Tuple[DMDDynamicsGenerator, jnp.ndarray]: [DMD based system model and set of denoised trajectories 
@@ -29,7 +32,7 @@ def dmd_fit(
     noisy_training_set = noisy_training_set.reshape((*shape[:-2], -1))
     noisy_training_set = _hankelizer(noisy_training_set, static_params.K)
     x, y = _hankel2xy(noisy_training_set)
-    dynamics_generator, denoised_trajectories = _exact_dmd(x, y, dynamic_params.sigma, static_params.K)
+    dynamics_generator, denoised_trajectories = _exact_dmd(x, y, dynamic_params.sigma, static_params.K, jit_compatible)
     denoised_trajectories = _dehankelizer(denoised_trajectories)
     denoised_trajectories = denoised_trajectories.reshape((shape[0], shape[1]-1, *shape[2:]))
     return dynamics_generator, denoised_trajectories

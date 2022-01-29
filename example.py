@@ -17,7 +17,7 @@ dynamic_params = JITDynamicParamsRandomLindbladian(
     tau = 0.2,
     hamiltonian_amplitude = 1.,
     dissipative_amplitude = 0.005,
-    sigma = 0.03,
+    sigma = 0.01,
 )
 
 static_params = JITStaticParamsRandomLindbladian(

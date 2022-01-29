@@ -1,9 +1,18 @@
 import jax.numpy as jnp
-from jax.lax import gather, GatherDimensionNumbers
+from jax.lax import gather, GatherDimensionNumbers, cond
 from jax import vmap
 from functools import partial
 from typing import Tuple, Union
 from dynamics_learner.dataclasses import DMDDynamicsGenerator
+
+
+@vmap
+def save_inverse(x: jnp.ndarray) -> jnp.ndarray:
+    return cond(x > 0, lambda x: 1 / x, lambda x: x, x)
+
+@partial(vmap, in_axes=(0, None))
+def jit_truncation(x: jnp.ndarray, trshld: jnp.ndarray) -> jnp.ndarray:
+    return cond(x > trshld, lambda x: x, lambda x: jnp.zeros_like(x), x)
 
 
 @partial(vmap, in_axes=(0, None), out_axes=0)
@@ -58,6 +67,7 @@ def _dehankelizer(
 def _trunc_svd(
     matrix: jnp.ndarray,
     sigma: Union[jnp.ndarray, float],
+    jit_compatible: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """[Perform a truncated svd decomposition of a matrix with the asymptotically
     optimal hard threshold according to the paper:
@@ -67,6 +77,8 @@ def _trunc_svd(
     Args:
         matrix (complex valued jnp.ndarray of shape (n, m)): [matrix to be decomposed]
         sigma (Union[jnp.ndarray, float]): [std of complex valued i.i.d. normal noise]
+        jit_compatible (bool): [the True flag makes this function jit compatible (jit обрезка)]
+            defautl to Flase
 
     Returns:
         Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]: [truncated u, s and vh factors of the svd decomposition.]
@@ -77,8 +89,12 @@ def _trunc_svd(
     beta = m / n
     lmbd = jnp.sqrt(2 * (beta + 1) + (8 * beta) / (beta + 1 + jnp.sqrt(beta ** 2 + 14 * beta + 1)))
     threshold = lmbd * jnp.sqrt(2 * n) * sigma
-    rank = (s > threshold).sum()
-    return u[:, :rank], s[:rank], vh[:rank]
+    if jit_compatible:
+        s = jit_truncation(s, threshold)
+        return u, s, vh
+    else:
+        rank = (s > threshold).sum()
+        return u[:, :rank], s[:rank], vh[:rank]
 
 
 def _hankel2xy(
@@ -103,7 +119,7 @@ def _exact_dmd(
     y: jnp.ndarray,
     sigma: Union[jnp.ndarray, float],
     K: int,
-    jit_compatible=False,
+    jit_compatible: bool=False,
 ) -> Tuple[DMDDynamicsGenerator, jnp.ndarray]:
     """[Applies exact DMD algorithm to reconstruct transition matrix between x and y in
     a low-rank factorized form.]
@@ -114,6 +130,8 @@ def _exact_dmd(
             that one time step forward wrt x]
         sigma (Union[jnp.ndarray, float]): [std of complex valued i.i.d. normal noise]
         K (int): [guessed memory depth]
+        jit_compatible (bool): [the True flag makes this function jit compatible (jit обрезка)]
+            defautl to Flase
 
     Returns:
         Tuple[DMDDynamicsGenerator, jnp.ndarray]: [DMD dynamics generator and denoised x]
@@ -123,18 +141,30 @@ def _exact_dmd(
     batch_size, _, _, d_sq = x.shape
     x = x.reshape((-1, K*d_sq)).T
     y = y.reshape((-1, K*d_sq)).T
-    u, s, vh = _trunc_svd(x, sigma)
+    u, s, vh = _trunc_svd(x, sigma, jit_compatible)
+    if jit_compatible:
+        rank = (s > 0).sum()
+    else:
+        rank = s.shape[0]
     # denoising
     x_denoised = (u * s) @ vh
     x_denoised = x_denoised.T.reshape((batch_size, -1, K, d_sq))
     # exacr dmd
-    s_inv = 1 / s
-    a_tild = (u.conj().T @ y) @ (vh.conj().T * s_inv)
-    lmbd, right = jnp.linalg.eig(a_tild)
-    left_adj = jnp.linalg.inv(right)
-    right = (y @ (vh.conj().T * s_inv)) @ right / lmbd
-    left_adj = left_adj @ (u.conj().T)
-    return DMDDynamicsGenerator(decoder=right, eigvals=lmbd, encoder=left_adj, rank=s.shape[0]), x_denoised
+    if jit_compatible:
+        s_inv = save_inverse(s)
+        a = (y @ (vh.T.conj() * s_inv)) @ u.T.conj()
+        lmbd, right = jnp.linalg.eig(a)
+        left_adj = jnp.linalg.inv(right)
+        return DMDDynamicsGenerator(decoder=right, eigvals=lmbd, encoder=left_adj, rank=rank), x_denoised
+    else:
+        s_inv = 1 / s
+        a_tild = (u.conj().T @ y) @ (vh.conj().T * s_inv)
+        lmbd, right = jnp.linalg.eig(a_tild)
+        left_adj = jnp.linalg.inv(right)
+        lmbd_inv = 1 / lmbd
+        right = (y @ (vh.conj().T * s_inv)) @ right * lmbd_inv
+        left_adj = left_adj @ (u.conj().T)
+        return DMDDynamicsGenerator(decoder=right, eigvals=lmbd, encoder=left_adj, rank=rank), x_denoised
 
 
 # TODO: consider reduced Y as an input in order to improve computational efficiency
