@@ -11,7 +11,7 @@ from dynamics_learner.dynamics_predictors import dmd_predict_dynamics
 
 
 # ==================================================================== #
-# This is the experiments runner for validation of the proposed methon #
+# This is the experiment runner for validation of the proposed methon #
 # ==================================================================== #
 
 def finite_de_experiment_runner(
