@@ -29,9 +29,11 @@ and experiments parameters in finite_de_parameters.pickle. The results of this f
 
 We kindly ask you to cite our paper if you use our code/method:
 
+```
 @article{luchnikov2021probing,
   title={Probing non-Markovian quantum dynamics with data-driven analysis: Beyond" black-box" machine learning models},
   author={Luchnikov, IA and Kiktenko, EO and Gavreev, MA and Ouerdane, H and Filippov, SN and Fedorov, AK},
   journal={arXiv preprint arXiv:2103.14490},
   year={2021}
 }
+```
